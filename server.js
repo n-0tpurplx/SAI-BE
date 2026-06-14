@@ -11,7 +11,6 @@ app.use(express.json());
 app.use(
   cors({
     origin: process.env.FRONTEND_URL,
-    credentials: true,
   })
 );
 
@@ -19,13 +18,8 @@ const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
 
-/* ---------------- MEMORY SESSION STORE ---------------- */
-const sessions = new Map();
-
-/* ---------------- HEALTH ---------------- */
-app.get("/", (req, res) => {
-  res.send("Songify backend alive 🎧");
-});
+/* ---------------- MEMORY STORE ---------------- */
+let latestSession = null;
 
 /* ---------------- LOGIN ---------------- */
 app.get("/login", (req, res) => {
@@ -44,7 +38,7 @@ app.get("/login", (req, res) => {
   res.redirect(authUrl);
 });
 
-/* ---------------- CALLBACK (SESSION FIX) ---------------- */
+/* ---------------- CALLBACK (NO URL RETURN) ---------------- */
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
 
@@ -65,32 +59,28 @@ app.get("/callback", async (req, res) => {
       }
     );
 
-    const { access_token, refresh_token } = tokenRes.data;
+    latestSession = {
+      access_token: tokenRes.data.access_token,
+      refresh_token: tokenRes.data.refresh_token,
+      time: Date.now(),
+    };
 
-    const sessionId = Math.random().toString(36).substring(2);
+    // 🔥 ALWAYS return to clean GitHub Pages root
+    res.redirect(process.env.FRONTEND_URL);
 
-    sessions.set(sessionId, {
-      access_token,
-      refresh_token,
-    });
-
-    // NO TOKEN IN URL (safe for GitHub Pages)
-    res.redirect(`${process.env.FRONTEND_URL}?session=${sessionId}`);
   } catch (err) {
     console.log(err.response?.data || err.message);
     res.status(500).send("Auth failed");
   }
 });
 
-/* ---------------- SESSION FETCH ---------------- */
-app.get("/session/:id", (req, res) => {
-  const session = sessions.get(req.params.id);
-
-  if (!session) {
-    return res.status(404).json({ error: "Session not found" });
+/* ---------------- GET CURRENT SESSION ---------------- */
+app.get("/session", (req, res) => {
+  if (!latestSession) {
+    return res.status(404).json({ error: "No session" });
   }
 
-  res.json(session);
+  res.json(latestSession);
 });
 
 /* ---------------- SEARCH ---------------- */
@@ -102,14 +92,12 @@ app.get("/search", async (req, res) => {
     const response = await axios.get(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
       {
-        headers: {
-          Authorization: token,
-        },
+        headers: { Authorization: token },
       }
     );
 
     res.json(response.data);
-  } catch (err) {
+  } catch {
     res.status(500).send("Search failed");
   }
 });
@@ -124,37 +112,25 @@ app.post("/create-playlist", async (req, res) => {
       headers: { Authorization: token },
     });
 
-    const userId = me.data.id;
-
     const playlist = await axios.post(
-      `https://api.spotify.com/v1/users/${userId}/playlists`,
-      {
-        name: "Songify Playlist 🎧",
-        description: "Created with Songify",
-      },
-      {
-        headers: { Authorization: token },
-      }
+      `https://api.spotify.com/v1/users/${me.data.id}/playlists`,
+      { name: "Songify Playlist 🎧" },
+      { headers: { Authorization: token } }
     );
 
     await axios.post(
       `https://api.spotify.com/v1/playlists/${playlist.data.id}/tracks`,
-      {
-        uris: tracks,
-      },
-      {
-        headers: { Authorization: token },
-      }
+      { uris: tracks },
+      { headers: { Authorization: token } }
     );
 
     res.json({
       external_url: playlist.data.external_urls.spotify,
     });
-  } catch (err) {
-    console.log(err.response?.data || err.message);
+
+  } catch {
     res.status(500).send("Playlist failed");
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Running on", PORT));
+app.listen(3000, () => console.log("Running"));
