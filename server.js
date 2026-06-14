@@ -41,7 +41,7 @@ app.get("/login", (req, res) => {
   res.redirect(authUrl);
 });
 
-/* ---------------- CALLBACK ---------------- */
+/* ---------------- CALLBACK (FIXED) ---------------- */
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
 
@@ -64,8 +64,9 @@ app.get("/callback", async (req, res) => {
 
     const { access_token, refresh_token } = tokenRes.data;
 
+    // 🔥 FIX: ALWAYS go to index.html (prevents GitHub 404)
     res.redirect(
-      `${process.env.FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}`
+      `${process.env.FRONTEND_URL}/index.html?access_token=${access_token}&refresh_token=${refresh_token}`
     );
   } catch (err) {
     console.log(err.response?.data || err.message);
