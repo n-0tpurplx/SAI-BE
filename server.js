@@ -19,6 +19,9 @@ const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
 
+/* ---------------- MEMORY SESSION STORE ---------------- */
+const sessions = new Map();
+
 /* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
   res.send("Songify backend alive 🎧");
@@ -41,7 +44,7 @@ app.get("/login", (req, res) => {
   res.redirect(authUrl);
 });
 
-/* ---------------- CALLBACK (FIXED) ---------------- */
+/* ---------------- CALLBACK (SESSION FIX) ---------------- */
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
 
@@ -64,14 +67,30 @@ app.get("/callback", async (req, res) => {
 
     const { access_token, refresh_token } = tokenRes.data;
 
-    // 🔥 FIX: ALWAYS go to index.html (prevents GitHub 404)
-    res.redirect(
-      `${process.env.FRONTEND_URL}/index.html?access_token=${access_token}&refresh_token=${refresh_token}`
-    );
+    const sessionId = Math.random().toString(36).substring(2);
+
+    sessions.set(sessionId, {
+      access_token,
+      refresh_token,
+    });
+
+    // NO TOKEN IN URL (safe for GitHub Pages)
+    res.redirect(`${process.env.FRONTEND_URL}?session=${sessionId}`);
   } catch (err) {
     console.log(err.response?.data || err.message);
     res.status(500).send("Auth failed");
   }
+});
+
+/* ---------------- SESSION FETCH ---------------- */
+app.get("/session/:id", (req, res) => {
+  const session = sessions.get(req.params.id);
+
+  if (!session) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+
+  res.json(session);
 });
 
 /* ---------------- SEARCH ---------------- */
