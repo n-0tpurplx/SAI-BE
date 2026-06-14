@@ -19,16 +19,12 @@ const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const REDIRECT_URI = process.env.SPOTIFY_REDIRECT_URI;
 
-/* -----------------------------
-   HEALTH CHECK
-------------------------------*/
+/* ---------------- HEALTH ---------------- */
 app.get("/", (req, res) => {
-  res.send("🎧 Songify backend is alive");
+  res.send("Songify backend alive 🎧");
 });
 
-/* -----------------------------
-   STEP 1: LOGIN
-------------------------------*/
+/* ---------------- LOGIN ---------------- */
 app.get("/login", (req, res) => {
   const scope =
     "user-read-private user-read-email user-top-read playlist-modify-public playlist-modify-private";
@@ -40,21 +36,17 @@ app.get("/login", (req, res) => {
       client_id: CLIENT_ID,
       scope,
       redirect_uri: REDIRECT_URI,
-    }).toString();
+    });
 
   res.redirect(authUrl);
 });
 
-/* -----------------------------
-   STEP 2: CALLBACK
-------------------------------*/
+/* ---------------- CALLBACK ---------------- */
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
 
-  if (!code) return res.status(400).send("No code provided");
-
   try {
-    const tokenResponse = await axios.post(
+    const tokenRes = await axios.post(
       "https://accounts.spotify.com/api/token",
       new URLSearchParams({
         grant_type: "authorization_code",
@@ -70,77 +62,79 @@ app.get("/callback", async (req, res) => {
       }
     );
 
-    const { access_token, refresh_token } = tokenResponse.data;
+    const { access_token, refresh_token } = tokenRes.data;
 
-    // For now we just return tokens (frontend will store them)
-    res.json({
-      access_token,
-      refresh_token,
-    });
+    res.redirect(
+      `${process.env.FRONTEND_URL}?access_token=${access_token}&refresh_token=${refresh_token}`
+    );
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).send("Token exchange failed");
+    console.log(err.response?.data || err.message);
+    res.status(500).send("Auth failed");
   }
 });
 
-/* -----------------------------
-   STEP 3: REFRESH TOKEN
-------------------------------*/
-app.get("/refresh", async (req, res) => {
-  const refresh_token = req.query.refresh_token;
-
-  if (!refresh_token) {
-    return res.status(400).send("No refresh token");
-  }
+/* ---------------- SEARCH ---------------- */
+app.get("/search", async (req, res) => {
+  const token = req.headers.authorization;
+  const q = req.query.q;
 
   try {
-    const response = await axios.post(
-      "https://accounts.spotify.com/api/token",
-      new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token,
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-      }),
+    const response = await axios.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(q)}&type=track&limit=5`,
       {
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: token,
         },
       }
     );
 
     res.json(response.data);
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).send("Refresh failed");
+    res.status(500).send("Search failed");
   }
 });
 
-/* -----------------------------
-   STEP 4: GET USER PROFILE
-------------------------------*/
-app.get("/me", async (req, res) => {
+/* ---------------- CREATE PLAYLIST ---------------- */
+app.post("/create-playlist", async (req, res) => {
   const token = req.headers.authorization;
-
-  if (!token) return res.status(401).send("No token");
+  const { tracks } = req.body;
 
   try {
-    const response = await axios.get("https://api.spotify.com/v1/me", {
-      headers: {
-        Authorization: token,
-      },
+    const me = await axios.get("https://api.spotify.com/v1/me", {
+      headers: { Authorization: token },
     });
 
-    res.json(response.data);
+    const userId = me.data.id;
+
+    const playlist = await axios.post(
+      `https://api.spotify.com/v1/users/${userId}/playlists`,
+      {
+        name: "Songify Playlist 🎧",
+        description: "Created with Songify",
+      },
+      {
+        headers: { Authorization: token },
+      }
+    );
+
+    await axios.post(
+      `https://api.spotify.com/v1/playlists/${playlist.data.id}/tracks`,
+      {
+        uris: tracks,
+      },
+      {
+        headers: { Authorization: token },
+      }
+    );
+
+    res.json({
+      external_url: playlist.data.external_urls.spotify,
+    });
   } catch (err) {
-    res.status(500).send("Failed to fetch profile");
+    console.log(err.response?.data || err.message);
+    res.status(500).send("Playlist failed");
   }
 });
 
-/* -----------------------------
-   START SERVER
-------------------------------*/
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🎧 Songify backend running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log("Running on", PORT));
